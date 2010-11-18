@@ -23,7 +23,9 @@
 		checks_count :: non_neg_integer(),
 		all_checks :: list(),
 		start_checks :: list(),
-		workers_started :: non_neg_integer()
+		start_per_interval :: non_neg_integer(),
+		workers_started :: non_neg_integer(),
+		options :: []
 	       }).
 
 -define(SERVER, ?MODULE).
@@ -58,13 +60,14 @@ init(Options) when is_list(Options) ->
 
     Checks = [],
 
-    {ok, #state{interval_timer_ref = TRef,
-		stats_timer_ref = StatsTRef,
-		interval_secs = Interval,
-		all_checks = Checks,
-		start_checks = Checks,
-		checks_count = length(Checks)
-	       }}.
+    State1 = #state{interval_timer_ref = TRef,
+		    stats_timer_ref = StatsTRef,
+		    interval_secs = Interval,
+		    options = Options
+		   },
+    State = set_checks(State1, Checks),
+
+    {ok, State}.
 
 %%--------------------------------------------------------------------
 %% Function: %% handle_call(Request, From, State) -> {reply, Reply, State} |
@@ -76,11 +79,7 @@ init(Options) when is_list(Options) ->
 %% Description: Handling call messages
 %%--------------------------------------------------------------------
 handle_call({set_checks, Checks}, _From, State) when is_list(Checks) ->
-    NewState =
-	State#state{
-	  all_checks = Checks,
-	  checks_count = length(Checks)
-	 },
+    NewState = set_checks (State, Checks),
     {reply, ok, NewState};
 
 handle_call(_Request, _From, State) ->
@@ -140,20 +139,32 @@ code_change(_OldVsn, State, _Extra) ->
 %%--------------------------------------------------------------------
 
 start_checks(State) ->
-    Count = State#state.checks_count,
-    SChecks = State#state.start_checks,
-    NewSChecks = start_checks2(Count, SChecks, State),
+    #state{start_per_interval = StartNum,
+	   start_checks = SChecks,
+	   options = Options
+	  } = State,
+    NewSChecks = start_checks2(StartNum, SChecks, State, Options),
     State#state{start_checks = NewSChecks,
-		workers_started = Count
+		workers_started = StartNum
 	       }.
 
-start_checks2(Count, [H | T], State) when Count > 0 ->
-    npers_worker:start(H),
-    start_checks2(Count - 1, T, State);
-start_checks2(Count, [], State) ->
+start_checks2(Count, [H | T], State, Options) when Count > 0 ->
+    npers_worker:start(H, Options),
+    start_checks2(Count - 1, T, State, Options);
+start_checks2(Count, [], State, Options) ->
     %% restart with all the checks when Count reaches zero
     SChecks = State#state.all_checks,
-    start_checks2(Count, SChecks, State);
-start_checks2(Count, SChecks, _State) when Count =:= 0 ->
+    start_checks2(Count, SChecks, State, Options);
+start_checks2(Count, SChecks, _State, _Options) when Count =:= 0 ->
     %% finished starting workers for this time
     SChecks.
+
+set_checks(State, Checks) when is_list(Checks) ->
+    Interval = State#state.interval_secs,
+    NumChecks = length(Checks),
+    State#state{
+      all_checks = Checks,
+      start_checks = Checks,
+      checks_count = NumChecks,
+      start_per_interval = NumChecks div Interval
+     }.

@@ -9,21 +9,25 @@
 
 -export([
 	 start/0,
-	 send_result/4
+	 send_result/5
 	]).
 
 start() ->
-    Options = [{interval, 300}],
-    npers_sup:start_link(Options),
+    Options = [{interval, 300},
+	       {erl_checks_filename, "erl.cfg"}
+	      ],
 
     {ok, Checks} = npers_checks:get_all(Options),
 
     application:start(sasl),
 
+    npers_sup:start_link(Options),
+
     gen_server:call(npers_spawner, {set_checks, Checks}).
 
     
 	       
-send_result(Cmd, Args, ExitStatus, Output) ->
+send_result(HostName, CheckName, ExitStatus, Output, Options) ->
+    npers_nsca:got_result(HostName, CheckName, ExitStatus, Output, Options),
     %%io:format("S:~p  ~s~n", [ExitStatus, Output]),
     ok.

@@ -1,26 +1,29 @@
 %%%-------------------------------------------------------------------
 %%% File    : npers_worker.erl
-%%% Author  : Fredrik Thulin <ft@ft-laptop.thulin.net>
+%%% Author  : Fredrik Thulin <ft@it.su.se>
 %%% Descrip : Run a single Nagios check
 %%%
-%%% Created : 18 Nov 2010 by Fredrik Thulin <ft@ft-laptop.thulin.net>
+%%% Created : 18 Nov 2010 by Fredrik Thulin <ft@it.su.se>
 %%%-------------------------------------------------------------------
 -module(npers_worker).
 
 -behaviour(gen_server).
 
 %% API
--export([start/1]).
+-export([start/2]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
 	 terminate/2, code_change/3]).
 
--record(state, {cmd :: string(),
-		args :: [string()],
-		port :: pid(),
+-record(state, {host :: nonempty_string(),
+		name :: nonempty_string(),
+		cmd :: nonempty_string(),
+		args :: [nonempty_string()],
+		port :: port(),
 		output = [],
-		start_time
+		start_time,
+		options :: []
 	       }).
 
 -define(TIMEOUT, 60 * 1000).
@@ -32,8 +35,8 @@
 %% Function: start_link() -> {ok,Pid} | ignore | {error,Error}
 %% Description: Starts the server
 %%--------------------------------------------------------------------
-start(Job) ->
-    gen_server:start(?MODULE, Job, []).
+start(Job, Options) ->
+    gen_server:start(?MODULE, {Job, Options}, []).
 
 %%====================================================================
 %% gen_server callbacks
@@ -46,12 +49,15 @@ start(Job) ->
 %%                         {stop, Reason}
 %% Description: Initiates the server
 %%--------------------------------------------------------------------
-init(Job) ->
+init({Job, Options}) ->
     case Job of
-	{nagios_check, Command, Args} when is_list(Command), is_list(Args) ->
+	{nagios_check, HostName, CheckName, Command, Args} when is_list(Command), is_list(Args) ->
 	    erlang:send_after(10, self(), start),
-	    {ok, #state{cmd = Command,
-			args = Args
+	    {ok, #state{host    = HostName,
+			name    = CheckName,
+			cmd     = Command,
+			args    = Args,
+			options = Options
 		       }, ?TIMEOUT};
 	_ ->
 	    {stop, bad_nagios_check}
@@ -106,17 +112,29 @@ handle_info({Port, {data, {Flag, Line}}}, #state{port = Port} = State) when Flag
     {noreply, State#state{output = Output}, ?TIMEOUT};
 
 handle_info({Port, {exit_status, Status}}, #state{port = Port} = State) ->
-    #state{cmd = Cmd,
-	   args = Args,
-	   output = Output
+    #state{host    = HostName,
+	   name    = CheckName,
+	   output  = Output,
+	   options = Options
 	  } = State,
 
     T1 = State#state.start_time,
     T2 = erlang:now(),
     Seconds = timer:now_diff(T2, T1) div (1000 * 1000),
-    io:format("~p E:~p ~ps ~s~n", [self(), Status, Seconds, Output]),
 
-    npers:send_result(State#state.cmd, State#state.args, Status, State#state.output),
+    if
+	Status =/= 0 ->
+	    %% show failed checks
+	    io:format("~p E:~p ~ps ~s~n", [self(), Status, Seconds, Output]);
+	Seconds > 20 ->
+	    %% show slow checks
+	    io:format("~p E:~p ~ps (SLOW) ~s~n", [self(), Status, Seconds, Output]);
+	true ->
+	    ok
+    end,
+
+    npers:send_result(HostName, CheckName, Status, Output, Options),
+
     {stop, normal, State};
 
 handle_info(timeout, State) ->
