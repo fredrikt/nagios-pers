@@ -17,7 +17,9 @@
 	 terminate/2, code_change/3]).
 
 -record(state, {cmd :: string(),
-		cmd_pid :: pid(),
+		args :: [string()],
+		port :: pid(),
+		output = [],
 		start_time
 	       }).
 
@@ -46,9 +48,11 @@ start(Job) ->
 %%--------------------------------------------------------------------
 init(Job) ->
     case Job of
-	{nagios_check, Command} when is_list(Command) ->
+	{nagios_check, Command, Args} when is_list(Command), is_list(Args) ->
 	    erlang:send_after(10, self(), start),
-	    {ok, #state{cmd = Command}, ?TIMEOUT};
+	    {ok, #state{cmd = Command,
+			args = Args
+		       }, ?TIMEOUT};
 	_ ->
 	    {stop, bad_nagios_check}
     end.
@@ -82,34 +86,44 @@ handle_cast(_Msg, State) ->
 %% Description: Handling all non call/cast messages
 %%--------------------------------------------------------------------
 handle_info(start, State) ->
-    Command = State#state.cmd,
-
-    Me = self(),
     StartTime = erlang:now(),
-    RunCmd =
-	fun() ->
-		Output = os:cmd(Command),
-		Me ! {cmd_output, self(), Output},
-		ok
-	end,
 
-    CmdPid = spawn_link(RunCmd),
+    Port = erlang:open_port({spawn_executable, State#state.cmd},
+			    [{args, State#state.args},
+			     {line, 10000},
+			     exit_status,
+			     in
+			    ]),
 
-    {noreply, State#state{cmd_pid = CmdPid,
+    {noreply, State#state{port = Port,
 			  start_time = StartTime
 			 },
      ?TIMEOUT
     };
 
-handle_info({cmd_output, Pid, Output}, #state{cmd_pid = Pid} = State) ->
-    %%io:format("~p ~s ~s~n", [Pid, State#state.cmd, Output]),
+handle_info({Port, {data, {Flag, Line}}}, #state{port = Port} = State) when Flag =:= eol; Flag =:= noeol ->
+    Output = State#state.output ++ Line,
+    {noreply, State#state{output = Output}, ?TIMEOUT};
+
+handle_info({Port, {exit_status, Status}}, #state{port = Port} = State) ->
+    #state{cmd = Cmd,
+	   args = Args,
+	   output = Output
+	  } = State,
+
+    T1 = State#state.start_time,
+    T2 = erlang:now(),
+    Seconds = timer:now_diff(T2, T1) div (1000 * 1000),
+    io:format("~p E:~p ~ps ~s~n", [self(), Status, Seconds, Output]),
+
+    npers:send_result(State#state.cmd, State#state.args, Status, State#state.output),
     {stop, normal, State};
 
 handle_info(timeout, State) ->
     {stop, timeout, State};
 
-handle_info(_Info, State) ->
-    {noreply, State}.
+handle_info(Info, State) ->
+    {stop, {unknown_signal, Info}, State}.
 
 %%--------------------------------------------------------------------
 %% Function: terminate(Reason, State) -> void()
@@ -118,7 +132,8 @@ handle_info(_Info, State) ->
 %% cleaning up. When it returns, the gen_server terminates with Reason.
 %% The return value is ignored.
 %%--------------------------------------------------------------------
-terminate(_Reason, _State) ->
+terminate(_Reason, State) ->
+    _ = (catch erlang:port_close(State#state.port)),
     ok.
 
 %%--------------------------------------------------------------------

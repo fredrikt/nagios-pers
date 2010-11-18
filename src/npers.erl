@@ -8,7 +8,8 @@
 -module(npers).
 
 -export([
-	 start/0
+	 start/0,
+	 send_result/4
 	]).
 
 start() ->
@@ -17,7 +18,12 @@ start() ->
 
     {ok, Checks} = npers_checks:get_all(Options),
 
+    application:start(sasl),
+
     gen_server:call(npers_spawner, {set_checks, Checks}).
 
     
 	       
+send_result(Cmd, Args, ExitStatus, Output) ->
+    %%io:format("S:~p  ~s~n", [ExitStatus, Output]),
+    ok.
