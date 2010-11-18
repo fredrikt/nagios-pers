@@ -98,7 +98,8 @@ handle_info(start, State) ->
 			    [{args, State#state.args},
 			     {line, 10000},
 			     exit_status,
-			     in
+			     in,
+			     stderr_to_stdout
 			    ]),
 
     {noreply, State#state{port = Port,
@@ -115,7 +116,9 @@ handle_info({Port, {exit_status, Status}}, #state{port = Port} = State) ->
     #state{host    = HostName,
 	   name    = CheckName,
 	   output  = Output,
-	   options = Options
+	   options = Options,
+	   cmd     = Command,
+	   args    = Args
 	  } = State,
 
     T1 = State#state.start_time,
@@ -125,10 +128,14 @@ handle_info({Port, {exit_status, Status}}, #state{port = Port} = State) ->
     if
 	Status =/= 0 ->
 	    %% show failed checks
-	    io:format("~p E:~p ~ps ~s~n", [self(), Status, Seconds, Output]);
+	    io:format("~p E:~p ~ps ~s/~s :~ncmd : ~s ~p~nout : ~s~n", [self(), Status, Seconds, HostName, CheckName,
+								       Command, Args,
+								       Output]);
 	Seconds > 20 ->
 	    %% show slow checks
-	    io:format("~p E:~p ~ps (SLOW) ~s~n", [self(), Status, Seconds, Output]);
+	    io:format("~p E:~p ~ps (SLOW) ~s/~s :~ncmd : ~s ~p~nout : ~s~n", [self(), Status, Seconds, HostName, CheckName,
+								       Command, Args,
+								       Output]);
 	true ->
 	    ok
     end,
