@@ -28,7 +28,8 @@
 		start_checks :: list(),
 		start_per_interval :: non_neg_integer(),
 		workers_started = 0 :: non_neg_integer(),
-		options :: []
+		options :: [],
+		stats_history = [] :: [{Secs :: non_neg_integer(), Workers :: non_neg_integer(), Count :: non_neg_integer()}]
 	       }).
 
 -define(SERVER, ?MODULE).
@@ -101,10 +102,10 @@ handle_call({set_interval, Seconds}, _From, State) when is_integer(Seconds) ->
 handle_call(get_info, _From, State) ->
     Info = [{interval_secs, State#state.interval_secs},
 	    {checks_count, State#state.checks_count},
-	    {all_checks_length, length(State#state.all_checks)},
 	    {start_checks_length, length(State#state.start_checks)},
 	    {start_per_interval, State#state.start_per_interval},
-	    {started_this_interval, State#state.workers_started}
+	    {started_this_interval, State#state.workers_started},
+	    {stats_history, State#state.stats_history}
 	    ],
     {reply, {ok, Info}, State};
 
@@ -133,12 +134,21 @@ handle_info(wake_up, #state{start_per_interval = 0} = State) ->
 
 handle_info(wake_up, State) ->
     NewState = start_checks(State),
+    %% Remove any new signals to wake up that have already arrived, to not
+    %% bite our tail when overloaded.
+    eat_wake_up(),
     {noreply, NewState};
 
 handle_info(dump_stats, State) ->
-    io:format("~p : Started ~p checks the last ~p seconds~n",
-	      [self(), State#state.workers_started, State#state.interval_secs]),
-    {noreply, State#state{workers_started = 0}};
+    io:format("~p : Started ~p checks the last ~p seconds (goal: ~p)~n",
+	      [self(), State#state.workers_started, State#state.interval_secs, State#state.checks_count]),
+    This = {State#state.interval_secs, State#state.workers_started, State#state.checks_count},
+    NewHistory1 = [This | State#state.stats_history],
+    NewHistory = lists:sublist(NewHistory1, 20),
+    NewState = State#state{workers_started = 0,
+			   stats_history = NewHistory
+			  },
+    {noreply, NewState};
 
 handle_info(_Info, State) ->
     {noreply, State}.
@@ -193,5 +203,24 @@ set_checks(State, Checks) when is_list(Checks) ->
       all_checks = Checks,
       start_checks = Checks,
       checks_count = NumChecks,
-      start_per_interval = NumChecks div Interval
+      start_per_interval = ceiling(NumChecks / Interval)
      }.
+
+%% from http://schemecookbook.org/Erlang/NumberRounding
+ceiling(X) ->
+    T = erlang:trunc(X),
+    case (X - T) of
+        Neg when Neg < 0 ->
+	    T;
+	Pos when Pos > 0 -> T + 1;
+        _ -> T
+    end.
+
+eat_wake_up() ->
+    receive
+	wake_up ->
+	    eat_wake_up()
+    after
+	0 ->
+	    ok
+    end.
