@@ -129,6 +129,8 @@ handle_info({Port, {exit_status, Status}}, #state{port = Port} = State) ->
 	   args    = Args
 	  } = State,
 
+    FinalOutput = collect_output_lines(State#state.port, Output),
+
     T1 = State#state.start_time,
     T2 = erlang:now(),
     Seconds = timer:now_diff(T2, T1) div (1000 * 1000),
@@ -138,17 +140,17 @@ handle_info({Port, {exit_status, Status}}, #state{port = Port} = State) ->
 	    %% show failed checks
 	    io:format("~p E:~p ~ps ~s/~s :~ncmd : ~s ~p~nout : ~s~n", [self(), Status, Seconds, HostName, CheckName,
 								       Command, Args,
-								       Output]);
+								       FinalOutput]);
 	Seconds > 20 ->
 	    %% show slow checks
 	    io:format("~p E:~p ~ps (SLOW) ~s/~s :~ncmd : ~s ~p~nout : ~s~n", [self(), Status, Seconds, HostName, CheckName,
 								       Command, Args,
-								       Output]);
+								       FinalOutput]);
 	true ->
 	    ok
     end,
 
-    npers:send_result(HostName, CheckName, Status, Output, Options),
+    npers:send_result(HostName, CheckName, Status, FinalOutput, Options),
 
     {stop, normal, State};
 
@@ -157,6 +159,7 @@ handle_info(timeout, State) ->
 
 handle_info(Info, State) ->
     {stop, {unknown_signal, Info}, State}.
+
 
 %%--------------------------------------------------------------------
 %% Function: terminate(Reason, State) -> void()
@@ -179,3 +182,13 @@ code_change(_OldVsn, State, _Extra) ->
 %%--------------------------------------------------------------------
 %%% Internal functions
 %%--------------------------------------------------------------------
+
+collect_output_lines(Port, In) when is_list(In) ->
+    receive
+	{Port, {data, {Flag, Line}}} when Flag =:= eol; Flag =:= noeol ->
+	    Output = In ++ Line,
+	    collect_output_lines(Port, Output)
+    after 0 ->
+	    %% no more lines
+	    In
+    end.
