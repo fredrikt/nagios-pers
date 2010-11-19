@@ -9,6 +9,7 @@
 
 -export([
 	 start/0,
+	 start/1,
 	 send_result/5
 	]).
 
@@ -17,6 +18,9 @@ start() ->
 	       {erl_checks_filename, "erl.cfg"}
 	      ],
 
+    start(Options).
+
+start(Options) ->
     {ok, Checks} = npers_checks:get_all(Options),
 
     application:start(sasl),

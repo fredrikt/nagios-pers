@@ -11,7 +11,9 @@
 -behaviour(gen_server).
 
 %% API
--export([start_link/1]).
+-export([start_link/1,
+	 info/0
+	]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -24,7 +26,7 @@
 		all_checks :: list(),
 		start_checks :: list(),
 		start_per_interval :: non_neg_integer(),
-		workers_started :: non_neg_integer(),
+		workers_started = 0 :: non_neg_integer(),
 		options :: []
 	       }).
 
@@ -39,6 +41,9 @@
 %%--------------------------------------------------------------------
 start_link(Options) when is_list(Options) ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, Options, []).
+
+info() ->
+    gen_server:call(?SERVER, get_info).
 
 %%====================================================================
 %% gen_server callbacks
@@ -67,6 +72,9 @@ init(Options) when is_list(Options) ->
 		   },
     State = set_checks(State1, Checks),
 
+    io:format("Started npers_spawner - will fire ~p checks every ~p seconds.~n",
+	      [State#state.start_per_interval, Interval]),
+
     {ok, State}.
 
 %%--------------------------------------------------------------------
@@ -81,6 +89,16 @@ init(Options) when is_list(Options) ->
 handle_call({set_checks, Checks}, _From, State) when is_list(Checks) ->
     NewState = set_checks (State, Checks),
     {reply, ok, NewState};
+
+handle_call(get_info, _From, State) ->
+    Info = [{interval_secs, State#state.interval_secs},
+	    {checks_count, State#state.checks_count},
+	    {all_checks_length, length(State#state.all_checks)},
+	    {start_checks_length, length(State#state.start_checks)},
+	    {start_per_interval, State#state.start_per_interval},
+	    {started_this_interval, State#state.workers_started}
+	    ],
+    {reply, {ok, Info}, State};
 
 handle_call(_Request, _From, State) ->
     Reply = not_implemented,
@@ -101,7 +119,7 @@ handle_cast(_Msg, State) ->
 %%                                       {stop, Reason, State}
 %% Description: Handling all non call/cast messages
 %%--------------------------------------------------------------------
-handle_info(wake_up, #state{checks_count = 0} = State) ->
+handle_info(wake_up, #state{start_per_interval = 0} = State) ->
     %% Ignore, we have not been told what checks to run
     {noreply, State};
 
@@ -140,12 +158,13 @@ code_change(_OldVsn, State, _Extra) ->
 
 start_checks(State) ->
     #state{start_per_interval = StartNum,
-	   start_checks = SChecks,
-	   options = Options
+	   start_checks    = SChecks,
+	   options         = Options,
+	   workers_started = PreviouslyStarted
 	  } = State,
     NewSChecks = start_checks2(StartNum, SChecks, State, Options),
-    State#state{start_checks = NewSChecks,
-		workers_started = StartNum
+    State#state{start_checks    = NewSChecks,
+		workers_started = StartNum + PreviouslyStarted
 	       }.
 
 start_checks2(Count, [H | T], State, Options) when Count > 0 ->

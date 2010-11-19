@@ -23,7 +23,8 @@
 		port :: port(),
 		output = [],
 		start_time,
-		options :: []
+		options :: [],
+		test_mode :: {boolean(), any()}
 	       }).
 
 -define(TIMEOUT, 60 * 1000).
@@ -50,14 +51,17 @@ start(Job, Options) ->
 %% Description: Initiates the server
 %%--------------------------------------------------------------------
 init({Job, Options}) ->
+    TestMode = proplists:get_value(test_mode, Options, {false, undefined}),
+
     case Job of
 	{nagios_check, HostName, CheckName, Command, Args} when is_list(Command), is_list(Args) ->
 	    erlang:send_after(10, self(), start),
-	    {ok, #state{host    = HostName,
-			name    = CheckName,
-			cmd     = Command,
-			args    = Args,
-			options = Options
+	    {ok, #state{host		= HostName,
+			name		= CheckName,
+			cmd		= Command,
+			args		= Args,
+			options		= Options,
+			test_mode	= TestMode
 		       }, ?TIMEOUT};
 	_ ->
 	    {stop, bad_nagios_check}
@@ -91,6 +95,10 @@ handle_cast(_Msg, State) ->
 %%                                       {stop, Reason, State}
 %% Description: Handling all non call/cast messages
 %%--------------------------------------------------------------------
+handle_info(start, #state{test_mode = {true, _TestParams}} = State) ->
+    %% test mode, don't actually start a worker
+    %%io:format("~p TEST: ~s ~p~n", [self(), State#state.cmd, State#state.args]),
+    {stop, normal, State};
 handle_info(start, State) ->
     StartTime = erlang:now(),
 
