@@ -10,12 +10,22 @@
 -export([
 	 start/0,
 	 start/1,
+	 start_test/0,
 	 send_result/5
 	]).
 
 start() ->
     Options = [{interval, 300},
 	       {erl_checks_filename, "erl.cfg"}
+	      ],
+
+    start(Options).
+
+
+start_test() ->
+    Options = [{interval, 30},
+	       {erl_checks_filename, "erl.cfg"},
+	       {test_mode, {true, undefined}}
 	      ],
 
     start(Options).
