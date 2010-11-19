@@ -12,7 +12,8 @@
 
 %% API
 -export([start_link/1,
-	 info/0
+	 info/0,
+	 set_interval/1
 	]).
 
 %% gen_server callbacks
@@ -44,6 +45,9 @@ start_link(Options) when is_list(Options) ->
 
 info() ->
     gen_server:call(?SERVER, get_info).
+
+set_interval(Seconds) when is_integer(Seconds) ->
+    gen_server:call(?SERVER, {set_interval, Seconds}).
 
 %%====================================================================
 %% gen_server callbacks
@@ -88,6 +92,10 @@ init(Options) when is_list(Options) ->
 %%--------------------------------------------------------------------
 handle_call({set_checks, Checks}, _From, State) when is_list(Checks) ->
     NewState = set_checks (State, Checks),
+    {reply, ok, NewState};
+
+handle_call({set_interval, Seconds}, _From, State) when is_integer(Seconds) ->
+    NewState = set_checks (State#state{interval_secs = Seconds}, State#state.all_checks),
     {reply, ok, NewState};
 
 handle_call(get_info, _From, State) ->
