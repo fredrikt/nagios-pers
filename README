@@ -1,3 +1,73 @@
 This might eventually become the perfect scheduler for Nagios.
 
-Bold statement, I know.
+Currently, it is a proof of concept. I had problems with my distributed
+Nagios check hosts not starting enough checks per second, and just couldn't
+figure out how to get them to start more. They were not overloaded, but
+not even with all the might of Google search could I figure out how to
+get them to run more services per time unit.
+
+So - I wrote this small scheduler that runs checks for me, and sends the
+results to the Nagios master using the same mechanism as a Nagios slave
+server would (using NCSA).
+
+Configuration :
+
+You have to produce a file looking like this :
+
+[
+  {nagios_check, "ap-ghost-p1-1.example.org", "PING", "/usr/lib/nagios/plugins/check_ping", ["-H", "192.168.7.197", "-w", "100.0,20%", "-c", "500.0,60%", "-p", "5"]},
+  {nagios_check, "ap-ghost-p1-2.example.org", "PING", "/usr/lib/nagios/plugins/check_ping", ["-H", "192.168.7.198", "-w", "100.0,20%", "-c", "500.0,60%", "-p", "5"]},
+  {nagios_check, "wussrv02.example.org", "CPU_Usage", "/usr/lib/nagios/plugins/check_nrpe", ["-H", "192.168.9.12", "-c", "CPU_Usage"]},
+  {nagios_check, "lb-ds-slave.example.org", "LDAP", "/usr/lib/nagios/plugins/check_ldap", ["-H", "192.168.10.10", "-b", "dc=example,dc=org"]}
+].
+
+Since this is currently only a proof of concept, I went for the kind of
+syntax that was easiest to parse using my language of choice. I know it
+is a bit awkward for most of the human population, but that's the way
+it currentlyt is.
+
+Then, edit the OPTIONS in npers.erl. Most of all, verify the send_result_cmd.
+
+After that, run approximately this :
+
+  $ apt-get install erlang
+  $ erlc *.erl
+  $ erl
+
+You will now get an Erlang shell. Enter "npers:start()." on the prompt :
+
+  1> npers:start().
+
+You will see a bunch of "PROGRESS REPORT", and then the next prompt.
+
+  2>
+
+To get back to your UNIX shell, press Ctrl+C twice. To ask npers what's
+going on, execute "npers_spawner:info()." :
+
+  2> npers_spawner:info().
+  {ok,[{interval_secs,400},
+       {checks_count,7359},
+       {wake_up_frequency,50},
+       {start_checks_length,4986},
+       {start_per_interval,1},
+       {started_this_interval,9607},
+       {stats_history,[{400,11584,7359},
+                       {400,11715,7359},
+                       {400,11877,7359},
+                       {400,11869,7359},
+                       {400,11691,7359},
+                       {400,8317,7359}]}]}
+   3>
+
+Here we see that one check will be started every 50 ms, to reach the goal of
+starting all my 7359 checks in 400 seconds.
+
+To change the interval without restarting, do "npers_spawner:set_interval(300)."
+
+My numbers are from a VMware ESX virtual machine with 2 CPUs and 512 MB of RAM.
+The CPU is reported to be 2,4 GHz Dual-Core AMD Opteron(tm) Processor 8218.
+
+Going from one to two CPUs, and stopping the Nagios process competing for
+resources on the same machine roughly trippled how many checks I could run
+without overloading the machine.
