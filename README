@@ -24,7 +24,7 @@ You have to produce a file looking like this :
 Since this is currently only a proof of concept, I went for the kind of
 syntax that was easiest to parse using my language of choice. I know it
 is a bit awkward for most of the human population, but that's the way
-it currentlyt is.
+it currently is.
 
 Then, edit the OPTIONS in npers.erl. Most of all, verify the send_result_cmd.
 
