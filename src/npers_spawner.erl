@@ -20,14 +20,15 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
 	 terminate/2, code_change/3]).
 
--record(state, {interval_timer_ref :: timer:tref(),
+-record(state, {wake_up_timer_ref :: timer:tref(),
+		wake_up_frequency :: non_neg_integer(),
 		stats_timer_ref :: timer:tref(),
 		interval_secs :: non_neg_integer(),
 		checks_count :: non_neg_integer(),
 		all_checks :: list(),
 		start_checks :: list(),
 		start_per_interval :: non_neg_integer(),
-		workers_started = 0 :: non_neg_integer(),
+		started_this_interval = 0 :: non_neg_integer(),
 		options :: [],
 		stats_history = [] :: [{Secs :: non_neg_integer(), Workers :: non_neg_integer(), Count :: non_neg_integer()}]
 	       }).
@@ -64,14 +65,11 @@ set_interval(Seconds) when is_integer(Seconds) ->
 init(Options) when is_list(Options) ->
     Interval = proplists:get_value(interval, Options, 300),
 
-    {ok, TRef} = timer:send_interval(1000, wake_up),
-
     {ok, StatsTRef} = timer:send_interval(Interval * 1000, dump_stats),
 
     Checks = [],
 
-    State1 = #state{interval_timer_ref = TRef,
-		    stats_timer_ref = StatsTRef,
+    State1 = #state{stats_timer_ref = StatsTRef,
 		    interval_secs = Interval,
 		    options = Options
 		   },
@@ -102,9 +100,10 @@ handle_call({set_interval, Seconds}, _From, State) when is_integer(Seconds) ->
 handle_call(get_info, _From, State) ->
     Info = [{interval_secs, State#state.interval_secs},
 	    {checks_count, State#state.checks_count},
+	    {wake_up_frequency, State#state.wake_up_frequency},
 	    {start_checks_length, length(State#state.start_checks)},
 	    {start_per_interval, State#state.start_per_interval},
-	    {started_this_interval, State#state.workers_started},
+	    {started_this_interval, State#state.started_this_interval},
 	    {stats_history, State#state.stats_history}
 	    ],
     {reply, {ok, Info}, State};
@@ -141,11 +140,11 @@ handle_info(wake_up, State) ->
 
 handle_info(dump_stats, State) ->
     io:format("~p : Started ~p checks the last ~p seconds (goal: ~p)~n",
-	      [self(), State#state.workers_started, State#state.interval_secs, State#state.checks_count]),
-    This = {State#state.interval_secs, State#state.workers_started, State#state.checks_count},
+	      [self(), State#state.started_this_interval, State#state.interval_secs, State#state.checks_count]),
+    This = {State#state.interval_secs, State#state.started_this_interval, State#state.checks_count},
     NewHistory1 = [This | State#state.stats_history],
     NewHistory = lists:sublist(NewHistory1, 20),
-    NewState = State#state{workers_started = 0,
+    NewState = State#state{started_this_interval = 0,
 			   stats_history = NewHistory
 			  },
     {noreply, NewState};
@@ -175,14 +174,14 @@ code_change(_OldVsn, State, _Extra) ->
 %%--------------------------------------------------------------------
 
 start_checks(State) ->
-    #state{start_per_interval = StartNum,
-	   start_checks    = SChecks,
-	   options         = Options,
-	   workers_started = PreviouslyStarted
+    #state{start_per_interval		= StartNum,
+	   start_checks			= SChecks,
+	   options			= Options,
+	   started_this_interval	= PreviouslyStarted
 	  } = State,
     NewSChecks = start_checks2(StartNum, SChecks, State, Options),
-    State#state{start_checks    = NewSChecks,
-		workers_started = StartNum + PreviouslyStarted
+    State#state{start_checks		= NewSChecks,
+		started_this_interval	= StartNum + PreviouslyStarted
 	       }.
 
 start_checks2(Count, [H | T], State, Options) when Count > 0 ->
@@ -197,13 +196,35 @@ start_checks2(Count, SChecks, _State, _Options) when Count =:= 0 ->
     SChecks.
 
 set_checks(State, Checks) when is_list(Checks) ->
+    %% Cancel old wake up timer
+    case State#state.wake_up_timer_ref of
+	undefined ->
+	    ok;
+	Ref ->
+	    {ok, cancel} = timer:cancel(Ref)
+    end,
+
+    %% Rig new wake up timer
     Interval = State#state.interval_secs,
     NumChecks = length(Checks),
+    Speedup = 1.1,	%% Safety margin to not fall behind because of processing overhead
+    {TRef, Freq} =
+	if
+	    Interval > 0, NumChecks > 0 ->
+		WakeEvery = ceiling(Interval * 1000 / (NumChecks * Speedup)),
+		{ok, WTRef} = timer:send_interval(WakeEvery, wake_up),
+		{WTRef, WakeEvery};
+	    true ->
+		{undefined, undefined}
+	end,
+
     State#state{
-      all_checks = Checks,
-      start_checks = Checks,
-      checks_count = NumChecks,
-      start_per_interval = ceiling(NumChecks / Interval)
+      wake_up_timer_ref		= TRef,
+      wake_up_frequency		= Freq,
+      all_checks		= Checks,
+      start_checks		= Checks,
+      checks_count		= NumChecks,
+      start_per_interval	= 1
      }.
 
 %% from http://schemecookbook.org/Erlang/NumberRounding
@@ -216,6 +237,8 @@ ceiling(X) ->
         _ -> T
     end.
 
+%% To try and not bite our own tail, we remove any new 'wake_up's that
+%% has arrived while we were processing the last one.
 eat_wake_up() ->
     receive
 	wake_up ->
