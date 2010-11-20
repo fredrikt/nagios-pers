@@ -18,8 +18,8 @@
 %% erl_checks_filename : path to file with check definitions - see README for details
 %% send_result_cmd     : path to script that will send results to your Nagios master server
 -define(OPTIONS, [{interval, 600},
-		  {erl_checks_filename, "erl.cfg"}
-		  {send_result_cmd, "/local/nagios/system-checkout/nagios/scripts/checks/send_result"},
+		  {erl_checks_filename, "erl.cfg"},
+		  {send_result_cmd, "/local/nagios/system-checkout/nagios/scripts/checks/send_result"}
 		 ]
        ).
 
