@@ -14,17 +14,24 @@
 	 send_result/5
 	]).
 
-start() ->
-    Options = [{interval, 300},
-	       {erl_checks_filename, "erl.cfg"}
-	      ],
+%% interval            : the number of seconds you want all checks to be completed in
+%% erl_checks_filename : path to file with check definitions - see README for details
+%% send_result_cmd     : path to script that will send results to your Nagios master server
+-define(OPTIONS, [{interval, 600},
+		  {erl_checks_filename, "erl.cfg"}
+		  {send_result_cmd, "/local/nagios/system-checkout/nagios/scripts/checks/send_result"},
+		 ]
+       ).
 
+start() ->
+    Options = ?OPTIONS,
     start(Options).
 
-
+%% for testing - {test_mode, {true, undefined}} means that no check commands will be executed
 start_test() ->
     Options = [{interval, 30},
 	       {erl_checks_filename, "erl.cfg"},
+	       {send_result_cmd, "/local/nagios/system-checkout/nagios/scripts/checks/send_result"},
 	       {test_mode, {true, undefined}}
 	      ],
 

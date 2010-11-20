@@ -20,8 +20,7 @@ got_result(HostName, CheckName, ExitStatus, Output, Options)
     ok.
 
 start_nsca(HostName, CheckName, ExitStatus, Output, Options) ->
-    Cmd = proplists:get_value(send_result_cmd, Options,
-			      "/local/nagios/system-checkout/nagios/scripts/checks/send_result"),
+    Cmd = proplists:get_value(send_result_cmd, Options, "send_result"),
 
     StatusStr = status2str(ExitStatus),
 
