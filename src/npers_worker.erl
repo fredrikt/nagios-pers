@@ -55,11 +55,12 @@ init({Job, Options}) ->
 
     case Job of
 	{nagios_check, HostName, CheckName, Command, Args} when is_list(Command), is_list(Args) ->
+	    NoEmptyArgs = [X || X <- Args, X /= []],
 	    erlang:send_after(10, self(), start),
 	    {ok, #state{host		= HostName,
 			name		= CheckName,
 			cmd		= Command,
-			args		= Args,
+			args		= NoEmptyArgs,
 			options		= Options,
 			test_mode	= TestMode
 		       }, ?TIMEOUT};
@@ -138,14 +139,18 @@ handle_info({Port, {exit_status, Status}}, #state{port = Port} = State) ->
     if
 	Status =/= 0 ->
 	    %% show failed checks
-	    io:format("~p E:~p ~ps ~s/~s :~ncmd : ~s ~p~nout : ~s~n", [self(), Status, Seconds, HostName, CheckName,
-								       Command, Args,
-								       FinalOutput]);
+	    ArgStr = io_lib:format("~p", [Args]),
+	    io:format("~p E:~p ~ps ~s/~s :~ncmd : ~s ~s~nout : ~s~n~n",
+		      [self(), Status, Seconds, HostName, CheckName,
+		       Command, ArgStr,
+		       FinalOutput]);
 	Seconds > 20 ->
 	    %% show slow checks
-	    io:format("~p E:~p ~ps (SLOW) ~s/~s :~ncmd : ~s ~p~nout : ~s~n", [self(), Status, Seconds, HostName, CheckName,
-								       Command, Args,
-								       FinalOutput]);
+	    ArgStr = io_lib:format("~p", [Args]),
+	    io:format("~p E:~p ~ps (SLOW) ~s/~s :~ncmd : ~s ~s~nout : ~s~n~n",
+		      [self(), Status, Seconds, HostName, CheckName,
+		       Command, ArgStr,
+		       FinalOutput]);
 	true ->
 	    ok
     end,
