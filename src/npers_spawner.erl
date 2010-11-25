@@ -207,11 +207,10 @@ set_checks(State, Checks) when is_list(Checks) ->
     %% Rig new wake up timer
     Interval = State#state.interval_secs,
     NumChecks = length(Checks),
-    Speedup = 1.1,	%% Safety margin to not fall behind because of processing overhead
     {TRef, Freq} =
 	if
 	    Interval > 0, NumChecks > 0 ->
-		WakeEvery = ceiling(Interval * 1000 / (NumChecks * Speedup)),
+		WakeEvery = ceiling(Interval * 1000 / NumChecks),
 		{ok, WTRef} = timer:send_interval(WakeEvery, wake_up),
 		{WTRef, WakeEvery};
 	    true ->
