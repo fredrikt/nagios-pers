@@ -160,7 +160,14 @@ handle_info({Port, {exit_status, Status}}, #state{port = Port} = State) ->
     {stop, normal, State};
 
 handle_info(timeout, State) ->
-    {stop, timeout, State};
+    error_logger:error_report([{timeout_after, ?TIMEOUT div 1000},
+			       {pid, self()},
+			       {host, State#state.host},
+			       {service, State#state.name},
+			       {command, State#state.cmd},
+			       {args, State#state.args}
+			      ]),
+    {stop, normal, State};
 
 handle_info(Info, State) ->
     {stop, {unknown_signal, Info}, State}.
